@@ -21,14 +21,17 @@ def create_excel_file():
 	# Ask user for name of file
 	print("Enter full path name for excel file including .xlsx extension\nIf full path isn't entered file will save in same directory as the script\n>>", end="")
 	fileName = input()
+	spreadsheet = {}
 	try:
 		# Create workbook
 		workbook = xlsxwriter.Workbook(fileName)
+		spreadsheet["workbook"] = workbook
 		# Create worksheet
 		worksheet = workbook.add_worksheet("PI Requests")
+		spreadsheet["worksheet"] = worksheet
 		# Print first row to spreadsheet
 		create_header(workbook, worksheet)
-		return worksheet
+		return spreadsheet
 	except (OSError):
 		sys.exit("Error creating excel file")
 # Creates and formats first row of spreadsheet
@@ -39,10 +42,10 @@ def create_header(workbook, worksheet):
 	cellFormat.set_align("center")
 	cellFormat.set_border_color("black")
 	# Create list with header items
-	headerText = ["Filter", "Tag#", "Old Tag#", "Client", "SAP ID", "Email DSA", "Request Date"]
+	headerText = ["Quote", "Filter", "Tag#", "Old Tag#", "Client", "SAP ID", "Email DSA", "Request Date"]
 	# Create list with column witdths
-	widths = [17, 13, 13, 45, 11, 23, 14.5]
-	for i in range(7):
+	widths = [17, 17, 13, 15, 45, 14, 23, 14.5]
+	for i in range(len(headerText)):
 		worksheet.set_column(i, i, widths[i])
 		worksheet.write_string(0, i, headerText[i], cellFormat)
 def collect_login_info():
@@ -60,18 +63,18 @@ def perform_login(driver, info):
 def open_and_process_tickets(driver):
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Find iframe ID
-	iframe = soup.find_all("iframe")
-	iframeID = iframe[0]["id"]
+	iframe = soup.find("iframe")
+	iframeID = iframe["id"]
 	# Switch to iframe
 	driver.switch_to.frame(driver.find_element_by_id(iframeID))
 	time.sleep(3)
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Find PI Support ID
 	tags = soup.find_all("a")
-	for group in range(len(tags)):
-		if tags[group].string != None:
-			if "PI SUPPORT" in tags[group].string:
-				PISupportID = tags[group]["id"]
+	for group in tags:
+		if group.string != None:
+			if "PI SUPPORT" in group.string:
+				PISupportID = group["id"]
 				break
 	# Open PI support group
 	driver.find_element_by_id(PISupportID).click()
@@ -95,64 +98,56 @@ def process_ticket(driver, ticketID, ticketsDict):
 	time.sleep(5)
 	# Get html of ticket page
 	soup = BeautifulSoup(driver.page_source, "html.parser")
-	# Find iframe ID
-	iframe = soup.find_all("iframe")
-	iframeID = iframe[0]["id"]
-	# Switch to iframe
-	driver.switch_to.frame(driver.find_element_by_id(iframeID))
-	time.sleep(3)
 	# collect description
 	descriptionArea = soup.find("textarea", {"name": "instance/description/description"})
-	description = descriptionArea.string
-	if software_request(description.lower()):
+	description = descriptionArea.string.lower()
+	if software_request(description):
 		process_software_request(soup, description, ticketsDict)
 	# Close Ticket
 	driver.switch_to_default_content()
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	buttons = soup.find_all("button")
-	for i in range(len(buttons)):
-		if buttons[i].string != None:
-			if buttons[i].string == "Cancel":
-				cancelID = buttons[i]["id"]
+	for b in buttons:
+		if b.string != None:
+			if b.string == "Cancel":
+				cancelID = b["id"]
 	driver.find_element_by_id(cancelID).click()
 	time.sleep(5)
 def find_ticket_IDs(driver):
 	ticketIDs = []
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Find iframe ID
-	iframe = soup.find_all("iframe")
-	iframeID = iframe[0]["id"]
+	iframe = soup.find("iframe")
+	iframeID = iframe["id"]
 	# Switch to iframe
 	driver.switch_to.frame(driver.find_element_by_id(iframeID))
 	time.sleep(3)
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	tags = soup.find_all("a")
 	# Process each ticket
-	for ticket in range(len(tags)):
-		if tags[ticket].string != None:
-			if "Q" in tags[ticket].string:
-				ticketIDs.append(tags[ticket]["id"])
+	for ticket in tags:
+		if ticket.string != None:
+			if "Q" in ticket.string:
+				ticketIDs.append(ticket["id"])
 	return ticketIDs
 def software_request(description):
 	isSoftwareRequest = False
 	if "processbook" in description or "process book" in description or "pi process" in description or "data link" in description or "datalink" in description or "pi data" in description:
-		if "software request" in description:
-			if "tag" in description:
-				isSoftwareRequest = True
-		elif "transfer request" in description:
-			if "tag" in description:
-				isSoftwareRequest = True
-		elif "install request" in description:
-			if "tag" in description:
-				isSoftwareRequest = True
+		if "tag" in description:
+			isSoftwareRequest = True
+		elif "request" in description:
+			isSoftwareRequest = True
+		elif "transfer" in description:
+			isSoftwareRequest = True
 	return isSoftwareRequest
 def process_software_request(soup, description, ticketsDict):
 	# Collect parent Quote number
-	quoteTag = soup.find("button", {"name", "instance/parent.quote"})
+	quoteTag = soup.find("input", {"name": "instance/parent.quote"})
 	parentQuote = quoteTag["value"]
+	requestDate = str(datetime.date.today())
 	ticketsDict[parentQuote] = {}
 	# Check if its a processbook request, data link request, or both
-	if "processbook" in description or "process book" in description or "pi process" in description:
+	if "data link" in description or "datalink" in description or "pi data" in description:
 		ticketsDict[parentQuote]["data link filter"] = "Data Link 2013"
 		tag = find_tag(description)
 		ticketsDict[parentQuote]["data link tag"] = tag
@@ -162,9 +157,8 @@ def process_software_request(soup, description, ticketsDict):
 		ticketsDict[parentQuote]["data link client"] = client
 		sapID = find_sap_id(soup)
 		ticketsDict[parentQuote]["data link SAP ID"] = sapID
-		requestDate = datetime.date.today()
 		ticketsDict[parentQuote]["request date"] = requestDate
-	if "data link" in description or "datalink" in description or "pi data" in description:
+	if "processbook" in description or "process book" in description or "pi process" in description:
 		ticketsDict[parentQuote]["process book filter"] = "Win7 - ProcessBook"
 		tag = find_tag(description)
 		ticketsDict[parentQuote]["process book tag"] = tag
@@ -174,19 +168,81 @@ def process_software_request(soup, description, ticketsDict):
 		ticketsDict[parentQuote]["process book client"] = client
 		sapID = find_sap_id(soup)
 		ticketsDict[parentQuote]["process book SAP ID"] = sapID
-		requestDate = datetime.date.today()
 		ticketsDict[parentQuote]["request date"] = requestDate
 def find_tag(description):
-	tag = ""
+	tag = "No tag found"
+	whitespace = [" ", ",", "\n", "\t", ":", ";"]
+	try:
+		if description.count("tag") == 1:
+			tag = ""
+			index = description.index("tag") + 3
+			while index < len(description) and description[index] in whitespace:
+				index += 1
+			while  index < len(description) and description[index].isdecimal():
+				tag = tag + description[index]
+				index += 1
+			tag = "TAG" + tag
+		elif "new tag" in description:
+			tag = ""
+			index = description.index("new tag") + 7
+			while index < len(description) and description[index] in whitespace:
+				index += 1
+			while  index < len(description) and description[index].isdecimal():
+				tag = tag + description[index]
+				index += 1
+			tag = "TAG" + tag
+		elif "to tag" in description:
+			tag = ""
+			index = description.index("to tag") + 6
+			while index < len(description) and description[index] in whitespace:
+				index += 1
+			while  index < len(description) and description[index].isdecimal():
+				tag = tag + description[index]
+				index += 1
+			tag = "TAG" + tag
+	except:
+		tag = "Error finding tag"
 	return tag
 def find_old_tag(description):
-	oldTag = ""
+	oldTag = "No old tag found"
+	whitespace = [" ", ",", "\n", "\t", ":", ";"]
+	try:
+		if "old tag" in description:
+			oldTag = ""
+			index = description.index("old tag") + 7
+			while index < len(description) and description[index] in whitespace:
+				index += 1
+			while  index < len(description) and description[index].isdecimal():
+				oldTag = oldTag + description[index]
+				index += 1
+			oldTag = "TAG" + oldTag
+		elif "from tag" in description:
+			oldTag = ""
+			index = description.index("from tag") + 8
+			while index < len(description) and description[index] in whitespace:
+				index += 1
+			while  index < len(description) and description[index].isdecimal():
+				oldTag = oldTag + description[index]
+				index += 1
+			oldTag = "TAG" + oldTag
+	except:
+		oldTag = "Error finding tag"
 	return oldTag
 def find_client(soup):
-	client = ""
+	client = "no client found"
+	tag = soup.find("input", {"id": "X26"})
+	try:
+		client = tag["value"]
+	except:
+		pass
 	return client
 def find_sap_id(soup):
-	sapID = ""
+	sapID = "no SAP ID found"
+	tag = soup.find("input", {"id": "X24"})
+	try:
+		sapID = tag["value"]
+	except:
+		pass
 	return sapID
 def populate_worksheet(worksheet, ticketsDict):
 	quotes = ticketsDict.keys()
@@ -194,27 +250,28 @@ def populate_worksheet(worksheet, ticketsDict):
 	row = 1
 	for quote in quotes:
 		if "data link filter" in ticketsDict[quote]:
-			worksheet.write_string(row, 0, ticketsDict[quote]["data link filter"])
-			worksheet.write_string(row, 1, ticketsDict[quote]["data link tag"])
-			worksheet.write_string(row, 2, ticketsDict[quote]["data link old tag"])
-			worksheet.write_string(row, 3, ticketsDict[quote]["data link client"])
-			worksheet.write_number(row, 4, ticketsDict[quote]["data link SAP ID"])
-			worksheet.write_string(row, 6, ticketsDict[quote]["data link request date"])
-
+			worksheet.write_string(row, 0, quote)
+			worksheet.write_string(row, 1, ticketsDict[quote]["data link filter"])
+			worksheet.write_string(row, 2, ticketsDict[quote]["data link tag"])
+			worksheet.write_string(row, 3, ticketsDict[quote]["data link old tag"])
+			worksheet.write_string(row, 4, ticketsDict[quote]["data link client"])
+			worksheet.write_string(row, 5, ticketsDict[quote]["data link SAP ID"])
+			worksheet.write_string(row, 7, ticketsDict[quote]["request date"])
+			row += 1
 	# Print all process book requests
 	for quote in quotes:
-		if "process book filter" in ticketDicts[quote]:
-			worksheet.write_string(row, 0, ticketsDict[quote]["process book filter"])
-			worksheet.write_string(row, 1, ticketsDict[quote]["process book tag"])
-			worksheet.write_string(row, 2, ticketsDict[quote]["process book old tag"])
-			worksheet.write_string(row, 3, ticketsDict[quote]["process book client"])
-			worksheet.write_number(row, 4, ticketsDict[quote]["process book SAP ID"])
-			worksheet.write_string(row, 6, ticketsDict[quote]["process book request date"])
-
-
+		if "process book filter" in ticketsDict[quote]:
+			worksheet.write_string(row, 0, quote)
+			worksheet.write_string(row, 1, ticketsDict[quote]["process book filter"])
+			worksheet.write_string(row, 2, ticketsDict[quote]["process book tag"])
+			worksheet.write_string(row, 3, ticketsDict[quote]["process book old tag"])
+			worksheet.write_string(row, 4, ticketsDict[quote]["process book client"])
+			worksheet.write_string(row, 5, ticketsDict[quote]["process book SAP ID"])
+			worksheet.write_string(row, 7, ticketsDict[quote]["request date"])
+			row += 1
 def main():
 	print("\n\nTicket Helper to parse PI ProcessBook and DataLink requests into excel spreadsheet\nWritten by Eric Thomas\n\n")
-	worksheet = create_excel_file()
+	spreadsheet = create_excel_file()
 	credentials = collect_login_info()
 		# Open session on website
 	try:
@@ -228,8 +285,12 @@ def main():
 		sys.exit("Error accessing Service Manager")
 	perform_login(driver, credentials)
 	ticketsDict = open_and_process_tickets(driver)
-	populate_worksheet(worksheet, ticketsDict)
-	worksheet.close()
+	populate_worksheet(spreadsheet["worksheet"], ticketsDict)
+	quotes = ticketsDict.keys()
+	print("Tickets processed:")
+	for quote in quotes:
+		print (quote, end=", ")
+	spreadsheet["workbook"].close()
 	driver.close()
 if __name__ == "__main__":
  	main()
