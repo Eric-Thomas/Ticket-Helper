@@ -197,7 +197,6 @@ def find_tag(description):
 	tag = "No tag found"
 	whitespace = [" ", ",", "\n", "\t", ":", ";"]
 	try:
-		# find tag if only 1 tag is mentioned
 		if description.count("tag") == 1:
 			tag = ""
 			# find index of tag number
