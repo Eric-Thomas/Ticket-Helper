@@ -43,7 +43,6 @@ def create_header(workbook, worksheet):
 	cellFormat = workbook.add_format()
 	cellFormat.set_fg_color("#BABABA")
 	cellFormat.set_align("center")
-	cellFormat.set_border_color("black")
 	# Create list with header items
 	headerText = ["Quote", "Filter", "Tag#", "Old Tag#", "Client", "SAP ID", "Email DSA", "Request Date"]
 	# Create list with column witdths
@@ -81,10 +80,9 @@ def open_and_process_tickets(driver):
 	# Find PI Support ID
 	tags = soup.find_all("a")
 	for group in tags:
-		if group.string != None:
-			if "PI SUPPORT" in group.string:
-				PISupportID = group["id"]
-				break
+		if group.string != None and "PI SUPPORT" in group.string:
+			PISupportID = group["id"]
+			break
 	# Open PI support group
 	driver.find_element_by_id(PISupportID).click()
 	# Allow tickets to load
@@ -119,15 +117,14 @@ def process_ticket(driver, ticketID, ticketsDict):
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	buttons = soup.find_all("button")
 	for b in buttons:
-		if b.string != None:
-			if b.string == "Cancel":
-				cancelID = b["id"]
+		if b.string != None and b.string == "Cancel":
+			cancelID = b["id"]
+			break
 	driver.find_element_by_id(cancelID).click()
 	time.sleep(5)
 # Looks through all tickets and checks if it is a quote
 # Returns list with html IDs of all quotes
 def find_ticket_IDs(driver):
-	ticketIDs = []
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Find iframe ID
 	iframe = soup.find("iframe")
@@ -137,11 +134,7 @@ def find_ticket_IDs(driver):
 	time.sleep(3)
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	tags = soup.find_all("a")
-	# Process each ticket
-	for ticket in tags:
-		if ticket.string != None:
-			if "Q" in ticket.string:
-				ticketIDs.append(ticket["id"])
+	ticketIDs = [ticket["id"] for ticket in tags if ticket.string != None and "Q" in ticket.string]
 	return ticketIDs
 # Looks for key words to indicate that the ticket is for a software request
 # Returns boolean indicating if it's a process request
@@ -209,6 +202,8 @@ def find_tag(description):
 				tag = tag + description[index]
 				index += 1
 			tag = "TAG" + tag
+		elif description.count("tag") > 2:
+			tag = "Multiple requests"
 		elif "new tag" in description:
 			tag = ""
 			index = description.index("new tag") + 7
@@ -237,7 +232,9 @@ def find_old_tag(description):
 	oldTag = "No old tag found"
 	whitespace = [" ", ",", "\n", "\t", ":", ";"]
 	try:
-		if "old tag" in description:
+		if description.count("old tag") > 2:
+		oldTag = "Multiple requests"
+		elif "old tag" in description:
 			oldTag = ""
 			# find index of tag number
 			index = description.index("old tag") + 7
@@ -323,7 +320,7 @@ def main():
 	ticketsDict = open_and_process_tickets(driver)
 	populate_worksheet(spreadsheet["worksheet"], ticketsDict)
 	quotes = ticketsDict.keys()
-	print("Tickets processed:")
+	print("\n\nTickets processed:")
 	for quote in quotes:
 		print (quote, end=", ")
 	spreadsheet["workbook"].close()
