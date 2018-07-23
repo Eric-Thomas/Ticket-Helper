@@ -22,8 +22,12 @@ except (ImportError):
 # Returns a dictionary is returned with workbook and worksheet objects
 def create_excel_file():
 	# Ask user for name of file
-	print("Enter full path name for excel file including .xlsx extension\nIf full path isn't entered file will save in same directory as the script\n>>", end="")
+	print("Enter file name for excel file including .xlsx extension\n\n>>", end="")
 	fileName = str(input())
+	while (fileName[-5:] != ".xlsx"):
+		print ("Invalide file extension!")
+		print("Enter file name for excel file including .xlsx extension\n\n>>", end="")
+		fileName = str(input())
 	spreadsheet = {}
 	try:
 		# Create workbook
@@ -72,7 +76,10 @@ def open_and_process_tickets(driver):
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Find iframe ID
 	iframe = soup.find("iframe")
-	iframeID = iframe["id"]
+	try:
+		iframeID = iframe["id"]
+	except:
+		sys.exit("Wrong username/password")
 	# Switch to iframe
 	driver.switch_to.frame(driver.find_element_by_id(iframeID))
 	time.sleep(3)
@@ -162,33 +169,25 @@ def process_software_request(soup, description, ticketsDict):
 	if "data link" in description or "datalink" in description or "pi data" in description:
 		# Fill out quote dictionary with data link info
 		ticketsDict[parentQuote]["data link filter"] = "Data Link 2013"
-		tag = find_tag(description)
-		ticketsDict[parentQuote]["data link tag"] = tag
-		oldTag = find_old_tag(description)
-		ticketsDict[parentQuote]["data link old tag"] = oldTag
-		client = find_client(soup)
-		ticketsDict[parentQuote]["data link client"] = client
-		sapID = find_sap_id(soup)
-		ticketsDict[parentQuote]["data link SAP ID"] = sapID
+		ticketsDict[parentQuote]["data link tag"] = find_tag(description)
+		ticketsDict[parentQuote]["data link old tag"] = find_old_tag(description)
+		ticketsDict[parentQuote]["data link client"] = find_client(soup)
+		ticketsDict[parentQuote]["data link SAP ID"] = find_sap_id(soup)
 		ticketsDict[parentQuote]["request date"] = requestDate
 	if "processbook" in description or "process book" in description or "pi process" in description:
 		# fill out quote dictionary with processbook info
 		ticketsDict[parentQuote]["processbook filter"] = "Win7 - ProcessBook"
-		tag = find_tag(description)
-		ticketsDict[parentQuote]["processbook tag"] = tag
-		oldTag = find_old_tag(description)
-		ticketsDict[parentQuote]["processbook old tag"] = oldTag
-		client = find_client(soup)
-		ticketsDict[parentQuote]["processbook client"] = client
-		sapID = find_sap_id(soup)
-		ticketsDict[parentQuote]["processbook SAP ID"] = sapID
+		ticketsDict[parentQuote]["processbook tag"] = find_tag(description)
+		ticketsDict[parentQuote]["processbook old tag"] = find_old_tag(description)
+		ticketsDict[parentQuote]["processbook client"] = find_client(soup)
+		ticketsDict[parentQuote]["processbook SAP ID"] = find_sap_id(soup)
 		ticketsDict[parentQuote]["request date"] = requestDate
 # Finds and returns tag number (TAG######) of new machine which software will be installed
 # If no new tag is found the string "No tag found" is returned
 # If there is a python error in finding the tag the string "Error finding tag" is returned
 def find_tag(description):
 	tag = "No tag found"
-	whitespace = [" ", ",", "\n", "\t", ":", ";"]
+	whitespace = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#"]
 	try:
 		if description.count("tag") == 1:
 			tag = ""
@@ -230,10 +229,10 @@ def find_tag(description):
 # If there is a python error in finding the old tag the string "Error finding tag" is returned
 def find_old_tag(description):
 	oldTag = "No old tag found"
-	whitespace = [" ", ",", "\n", "\t", ":", ";"]
+	whitespace = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#"]
 	try:
 		if description.count("old tag") > 2:
-		oldTag = "Multiple requests"
+			oldTag = "Multiple requests"
 		elif "old tag" in description:
 			oldTag = ""
 			# find index of tag number
@@ -261,7 +260,7 @@ def find_old_tag(description):
 # Finds and returns the name of the client requesting the software
 def find_client(soup):
 	client = "no client found"
-	tag = soup.find("input", {"id": "X26"})
+	tag = soup.find("input", {"id": "X17"})
 	try:
 		client = tag["value"]
 	except:
@@ -270,7 +269,7 @@ def find_client(soup):
 # Finds and returns the SAP ID of the client requesting the software
 def find_sap_id(soup):
 	sapID = "no SAP ID found"
-	tag = soup.find("input", {"id": "X24"})
+	tag = soup.find("input", {"id": "X15"})
 	try:
 		sapID = tag["value"]
 	except:
@@ -313,9 +312,10 @@ def main():
 		sys.exit("Error with Edge driver\n\n\nRemember to close all instances of Edge before running program!\n")
 	try:
 		driver.get("https://itsm.fenetwork.com/HPSM9.33_PROD/index.do")
-		time.sleep(2)
+		time.sleep(5)
 	except:
 		sys.exit("Error accessing Service Manager")
+
 	perform_login(driver, credentials)
 	ticketsDict = open_and_process_tickets(driver)
 	populate_worksheet(spreadsheet["worksheet"], ticketsDict)
