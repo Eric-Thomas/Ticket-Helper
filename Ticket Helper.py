@@ -50,7 +50,7 @@ def create_header(workbook, worksheet):
 	# Create list with header items
 	headerText = ["Quote", "Filter", "Tag#", "Old Tag#", "Client", "SAP ID", "Email DSA", "Request Date"]
 	# Create list with column witdths
-	widths = [17, 17, 13, 15, 45, 14, 23, 14.5]
+	widths = [17, 17, 15, 15, 45, 14, 37, 14.5]
 	for i in range(len(headerText)):
 		worksheet.set_column(i, i, widths[i])
 		worksheet.write_string(0, i, headerText[i], cellFormat)
@@ -93,7 +93,7 @@ def open_and_process_tickets(driver):
 	# Open PI support group
 	driver.find_element_by_id(PISupportID).click()
 	# Allow tickets to load
-	time.sleep(3)
+	time.sleep(2)
 	# Find Tickets
 	driver.switch_to_default_content()
 	ticketIDs = find_ticket_IDs(driver)
@@ -104,21 +104,24 @@ def open_and_process_tickets(driver):
 		# Must re-find ticket IDs because they change everytime a ticket is opened and closed
 		driver.switch_to_default_content()
 		ticketIDs = find_ticket_IDs(driver)
-		process_ticket(driver, ticketIDs[ticket], ticketsDict)
+		try:
+			process_ticket(driver, ticketIDs[ticket], ticketsDict)
+		except:
+			pass
 	return ticketsDict
 # Processes description field of the ticket to see if it is a software request
 # Closes ticket after it is processed
 def process_ticket(driver, ticketID, ticketsDict):
 	# Click on ticket
 	driver.find_element_by_id(ticketID).click()
-	time.sleep(5)
+	time.sleep(2)
 	# Get html of ticket page
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# collect description
 	descriptionArea = soup.find("textarea", {"name": "instance/description/description"})
 	description = descriptionArea.string.lower()
 	if software_request(description):
-		process_software_request(soup, description, ticketsDict)
+		process_software_request(driver, description, ticketsDict)
 	# Close Ticket
 	driver.switch_to_default_content()
 	soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -128,7 +131,7 @@ def process_ticket(driver, ticketID, ticketsDict):
 			cancelID = b["id"]
 			break
 	driver.find_element_by_id(cancelID).click()
-	time.sleep(5)
+	time.sleep(2)
 # Looks through all tickets and checks if it is a quote
 # Returns list with html IDs of all quotes
 def find_ticket_IDs(driver):
@@ -138,7 +141,6 @@ def find_ticket_IDs(driver):
 	iframeID = iframe["id"]
 	# Switch to iframe
 	driver.switch_to.frame(driver.find_element_by_id(iframeID))
-	time.sleep(3)
 	soup = BeautifulSoup(driver.page_source, "html.parser")
 	tags = soup.find_all("a")
 	ticketIDs = [ticket["id"] for ticket in tags if ticket.string != None and "Q" in ticket.string]
@@ -147,7 +149,15 @@ def find_ticket_IDs(driver):
 # Returns boolean indicating if it's a process request
 def software_request(description):
 	isSoftwareRequest = False
-	if "processbook" in description or "process book" in description or "pi process" in description or "data link" in description or "datalink" in description or "pi data" in description:
+	firstTest = False
+	if "processbook" in description or "process book" in description or "pi process" in description:
+		firstTest = True
+	elif  "data link" in description or "datalink" in description or "pi data" in description:
+		firstTest = True
+	elif "pi excel" in description or "excel pi" in description or "excel add on" in description or "excel add-on" in description:
+		firstTest = True
+		
+	if firstTest:
 		if "tag" in description:
 			isSoftwareRequest = True
 		elif "request" in description:
@@ -156,57 +166,68 @@ def software_request(description):
 			isSoftwareRequest = True
 		elif "software" in description:
 			isSoftwareRequest = True
+		elif "install" in description:
+			isSoftwareRequest = True
 	return isSoftwareRequest
 # Collects necessary spreadsheet information of software request ticket
 # Populates the ticket dictionary in corresponding quote value
-def process_software_request(soup, description, ticketsDict):
+def process_software_request(driver, description, ticketsDict):
+	# Get html of ticket page
+	soup = BeautifulSoup(driver.page_source, "html.parser")
 	# Collect parent Quote number
 	quoteTag = soup.find("input", {"name": "instance/parent.quote"})
 	parentQuote = quoteTag["value"]
+	# find spreadsheet info
+	tag = find_tag(description)
+	oldTag = find_old_tag(description)
+	client = find_client(soup)
+	sapID = find_sap_id(soup)
+	email = find_email_DSA(driver)
 	requestDate = str(datetime.date.today())
+	# create parent quote dictionary
 	ticketsDict[parentQuote] = {}
 	# Check if its a processbook request, data link request, or both
-	if "data link" in description or "datalink" in description or "pi data" in description:
+	if "data link" in description or "datalink" in description or "pi data" in description or "pi excel" in description or "excel pi" in description or "excel add on" in description or "excel add-on" in description:
 		# Fill out quote dictionary with data link info
 		ticketsDict[parentQuote]["data link filter"] = "Data Link 2013"
-		ticketsDict[parentQuote]["data link tag"] = find_tag(description)
-		ticketsDict[parentQuote]["data link old tag"] = find_old_tag(description)
-		ticketsDict[parentQuote]["data link client"] = find_client(soup)
-		ticketsDict[parentQuote]["data link SAP ID"] = find_sap_id(soup)
+		ticketsDict[parentQuote]["data link tag"] = tag
+		ticketsDict[parentQuote]["data link old tag"] = oldTag
+		ticketsDict[parentQuote]["data link client"] = client
+		ticketsDict[parentQuote]["data link SAP ID"] = sapID
+		ticketsDict[parentQuote]["data link email DSA"] = email
 		ticketsDict[parentQuote]["request date"] = requestDate
 	if "processbook" in description or "process book" in description or "pi process" in description:
 		# fill out quote dictionary with processbook info
 		ticketsDict[parentQuote]["processbook filter"] = "Win7 - ProcessBook"
-		ticketsDict[parentQuote]["processbook tag"] = find_tag(description)
-		ticketsDict[parentQuote]["processbook old tag"] = find_old_tag(description)
-		ticketsDict[parentQuote]["processbook client"] = find_client(soup)
-		ticketsDict[parentQuote]["processbook SAP ID"] = find_sap_id(soup)
+		ticketsDict[parentQuote]["processbook tag"] = tag
+		ticketsDict[parentQuote]["processbook old tag"] = oldTag
+		ticketsDict[parentQuote]["processbook client"] = client
+		ticketsDict[parentQuote]["processbook SAP ID"] = sapID
+		ticketsDict[parentQuote]["processbook email DSA"] = email
 		ticketsDict[parentQuote]["request date"] = requestDate
 # Finds and returns tag number (TAG######) of new machine which software will be installed
 # If no new tag is found the string "No tag found" is returned
 # If there is a python error in finding the tag the string "Error finding tag" is returned
 def find_tag(description):
 	tag = "No tag found"
-	whitespace = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#"]
+	separators = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#", "-", "=", ".", "\\", "/", "<", ">", "\"", "'", "s"]
 	try:
 		if description.count("tag") == 1:
 			tag = ""
 			# find index of tag number
 			index = description.index("tag") + 3
-			# ignore whitespace
-			while index < len(description) and description[index] in whitespace:
+			# ignore separators
+			while index < len(description) and description[index] in separators:
 				index += 1
 			# collect numbers of tag
 			while  index < len(description) and description[index].isdecimal():
 				tag = tag + description[index]
 				index += 1
 			tag = "TAG" + tag
-		elif description.count("tag") > 2:
-			tag = "Multiple requests"
 		elif "new tag" in description:
 			tag = ""
 			index = description.index("new tag") + 7
-			while index < len(description) and description[index] in whitespace:
+			while index < len(description) and description[index] in separators:
 				index += 1
 			while  index < len(description) and description[index].isdecimal():
 				tag = tag + description[index]
@@ -215,21 +236,24 @@ def find_tag(description):
 		elif "to tag" in description:
 			tag = ""
 			index = description.index("to tag") + 6
-			while index < len(description) and description[index] in whitespace:
+			while index < len(description) and description[index] in separators:
 				index += 1
 			while  index < len(description) and description[index].isdecimal():
 				tag = tag + description[index]
 				index += 1
 			tag = "TAG" + tag
+		# Test for multiple tags
+		if description.count("tag") > 2 or "tags" in description:
+			tag = "Multiple requests"
 	except:
 		tag = "Error finding tag"
 	return tag
 # Finds and returns old tag number (TAG######) of machine that software was previously on
-# If no old tag is found the string "No old tag found" is returned
+# If no old tag is found empty string is returned
 # If there is a python error in finding the old tag the string "Error finding tag" is returned
 def find_old_tag(description):
-	oldTag = "No old tag found"
-	whitespace = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#"]
+	oldTag = ""
+	separators = [" ", ",", "\n", "\t", ":", ";", "(", ")", "[", "]", "{", "}", "#", "-", "=", ".", "\\", "/", "<", ">", "\"", "'", "s"]
 	try:
 		if description.count("old tag") > 2:
 			oldTag = "Multiple requests"
@@ -237,8 +261,8 @@ def find_old_tag(description):
 			oldTag = ""
 			# find index of tag number
 			index = description.index("old tag") + 7
-			# ignore whitespace
-			while index < len(description) and description[index] in whitespace:
+			# ignore separators
+			while index < len(description) and description[index] in separators:
 				index += 1
 			# collect number of tag
 			while  index < len(description) and description[index].isdecimal():
@@ -248,7 +272,7 @@ def find_old_tag(description):
 		elif "from tag" in description:
 			oldTag = ""
 			index = description.index("from tag") + 8
-			while index < len(description) and description[index] in whitespace:
+			while index < len(description) and description[index] in separators:
 				index += 1
 			while  index < len(description) and description[index].isdecimal():
 				oldTag = oldTag + description[index]
@@ -257,7 +281,8 @@ def find_old_tag(description):
 	except:
 		oldTag = "Error finding tag"
 	return oldTag
-# Finds and returns the name of the client requesting the software
+# Finds and returns the name of the client requesting the software if present
+# Otherwise returns "no client found"
 def find_client(soup):
 	client = "no client found"
 	tag = soup.find("input", {"id": "X17"})
@@ -266,7 +291,8 @@ def find_client(soup):
 	except:
 		pass
 	return client
-# Finds and returns the SAP ID of the client requesting the software
+# Finds and returns the SAP ID of the client requesting the software if present
+# Otherwise returns "no SAP ID found"
 def find_sap_id(soup):
 	sapID = "no SAP ID found"
 	tag = soup.find("input", {"id": "X15"})
@@ -275,6 +301,43 @@ def find_sap_id(soup):
 	except:
 		pass
 	return sapID
+# Finds and returns the Email DSA if present
+# Otherwise returns empty string
+def find_email_DSA(driver):
+	emailDSA = ""
+	try:
+		# Open contact info
+		driver.find_element_by_id("X24FindButton").click()
+		# Wait for page to load
+		time.sleep(2)
+		soup = BeautifulSoup(driver.page_source, "html.parser")
+		# Find job grouping
+		jobGrouping = soup.find("input", {"id": "X61"})
+		# if job grouping is desktop analyst then fill email
+		if jobGrouping["value"] != None and jobGrouping["value"] == "DESKTOP ANALYST":
+			emailField = soup.find("input", {"id": "X44"})
+			if emailField["value"] != None:
+				emailDSA = emailField["value"]
+		# close contact info
+		driver.switch_to_default_content()
+		soup = BeautifulSoup(driver.page_source, "html.parser")
+		buttons = soup.find_all("button")
+		for b in buttons:
+			if b.string != None and b.string == "Cancel":
+				cancelID = b["id"]
+				break
+		driver.find_element_by_id(cancelID).click()
+		time.sleep(2)
+		# Switch to iframe for driver
+		soup = BeautifulSoup(driver.page_source, "html.parser")
+		# Find iframe ID
+		iframe = soup.find("iframe")
+		iframeID = iframe["id"]
+		driver.switch_to.frame(driver.find_element_by_id(iframeID))
+	except:
+		pass
+	return emailDSA
+
 # Fills out worksheet with information in the tickets dictionary
 def populate_worksheet(worksheet, ticketsDict):
 	quotes = ticketsDict.keys()
@@ -288,6 +351,7 @@ def populate_worksheet(worksheet, ticketsDict):
 			worksheet.write_string(row, 3, ticketsDict[quote]["data link old tag"])
 			worksheet.write_string(row, 4, ticketsDict[quote]["data link client"])
 			worksheet.write_string(row, 5, ticketsDict[quote]["data link SAP ID"])
+			worksheet.write_string(row, 6, ticketsDict[quote]["data link email DSA"])
 			worksheet.write_string(row, 7, ticketsDict[quote]["request date"])
 			row += 1
 	# Print all processbook request info in corresponding columns
@@ -299,6 +363,7 @@ def populate_worksheet(worksheet, ticketsDict):
 			worksheet.write_string(row, 3, ticketsDict[quote]["processbook old tag"])
 			worksheet.write_string(row, 4, ticketsDict[quote]["processbook client"])
 			worksheet.write_string(row, 5, ticketsDict[quote]["processbook SAP ID"])
+			worksheet.write_string(row, 6, ticketsDict[quote]["processbook email DSA"])
 			worksheet.write_string(row, 7, ticketsDict[quote]["request date"])
 			row += 1
 def main():
@@ -309,7 +374,7 @@ def main():
 	try:
 		driver = webdriver.Edge()
 	except:
-		sys.exit("Error with Edge driver\n\n\nRemember to close all instances of Edge before running program!\n")
+		sys.exit("Error with Edge driver\n\n\nMake sure Edge Driver is in the same directory as python.exe\n\n\nRemember to close all instances of Edge before running program!\n")
 	try:
 		driver.get("https://itsm.fenetwork.com/HPSM9.33_PROD/index.do")
 		time.sleep(5)
